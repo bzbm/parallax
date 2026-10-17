@@ -81,17 +81,6 @@
     cursor: pointer;
     transition: background .15s, border-color .15s, color .15s;
   }
-  button svg {
-    display: block;
-    width: 14px;
-    height: 14px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    pointer-events: none;
-  }
   button.loaded { border-color: var(--live); }
   button:hover { border-color: var(--accent); color: var(--accent); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -111,12 +100,6 @@
 <div class="drag-top"></div>
 <div class="list" id="list"></div>
 <script>
-  const ICONS = {
-    tv: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
-    doc: '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>',
-    folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-  };
-
   const list = document.getElementById('list');
   const buttons = new Map(); // slot id -> button
   const keyOf = new Map();   // slot id -> provider key
@@ -144,8 +127,7 @@
       prev = s.group;
 
       const b = document.createElement('button');
-      if (s.icon) b.innerHTML = ICONS[s.icon] || '';
-      else b.textContent = s.label;
+      b.textContent = s.label;
       b.title = s.title;
       b.onclick = () => window.api.switchTo(s.id);
       list.appendChild(b);

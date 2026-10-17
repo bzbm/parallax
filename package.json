@@ -1,7 +1,7 @@
 {
   "name": "parallax",
   "productName": "Parallax",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Minimal multi-account switcher for AI chats",
   "main": "main.js",
   "scripts": {
@@ -22,11 +22,7 @@
     "files": [
       "main.js",
       "preload.js",
-      "local-preload.js",
       "sidebar.html",
-      "video.html",
-      "notes.html",
-      "shelf.html",
       "icon.png",
       "package.json"
     ],
