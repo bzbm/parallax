@@ -1,0 +1,39 @@
+{
+  "name": "parallax",
+  "productName": "Parallax",
+  "version": "1.1.0",
+  "description": "Minimal multi-account switcher for AI chats",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac dir --arm64"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  },
+  "build": {
+    "appId": "com.azam.parallax",
+    "productName": "Parallax",
+    "electronDist": "node_modules/electron/dist",
+    "files": [
+      "main.js",
+      "preload.js",
+      "local-preload.js",
+      "sidebar.html",
+      "video.html",
+      "notes.html",
+      "shelf.html",
+      "icon.png",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "icon.png",
+      "target": "dir"
+    }
+  }
+}

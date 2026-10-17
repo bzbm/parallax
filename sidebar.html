@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<style>
+  :root {
+    --bg: #fafafa;
+    --ring: #d4d4d4;   /* unloaded */
+    --live: #8a8a8a;   /* loaded in RAM */
+    --text: #8a8a8a;
+    --accent: #e5322d;
+    --min-gap: 16px;   /* tightest spacing before the sidebar starts scrolling */
+    --drag-w: 33.333%;     /* top-bar drag area = 1/3 of the window width, centered */
+    --drag-min-left: 340px;  /* never reach into the chat title on narrow windows */
+    --drag-min-right: 130px; /* never reach the Share button */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161616; --ring: #2e2e2e; --live: #777; --text: #777; }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { height: 100%; background: var(--bg); overflow: hidden; }
+  body {
+    height: 100%;
+    width: 72px;
+    overflow-y: auto;
+    font: 12px -apple-system, BlinkMacSystemFont, sans-serif;
+    user-select: none;
+  }
+  body::-webkit-scrollbar { display: none; }
+
+  /* Fills the sidebar top to bottom. Extra height is shared out evenly between
+     the icons; when the window is too short, spacing stops at --min-gap and
+     the sidebar scrolls instead. */
+  .list {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--min-gap);
+    padding: 56px 0 20px;
+  }
+
+  /* only this top strip drags the window, so the wheel works over the whole list */
+  .drag {
+    position: fixed;
+    top: 0; left: 0;
+    width: 72px; /* sidebar only, never over the page */
+    height: 44px;
+    z-index: 1;
+    background: var(--bg);
+    -webkit-app-region: drag;
+  }
+
+  /* extra drag area in the empty middle of the page's top bar (Claude only) */
+  .drag-top {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: max(calc((100% - var(--drag-w)) / 2), var(--drag-min-left));
+    right: max(calc((100% - var(--drag-w)) / 2), var(--drag-min-right));
+    height: 40px;
+    -webkit-app-region: drag;
+  }
+  body.claude .drag-top { display: block; }
+
+  button {
+    -webkit-app-region: no-drag;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1.5px solid var(--ring);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  button svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+  }
+  button.loaded { border-color: var(--live); }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .sep {
+    flex: none;
+    width: 12px;
+    height: 1.5px;
+    border-radius: 1px;
+    background: var(--ring);
+  }
+</style>
+</head>
+<body>
+<div class="drag"></div>
+<div class="drag-top"></div>
+<div class="list" id="list"></div>
+<script>
+  const ICONS = {
+    tv: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+    doc: '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>',
+    folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  };
+
+  const list = document.getElementById('list');
+  const buttons = new Map(); // slot id -> button
+  const keyOf = new Map();   // slot id -> provider key
+  let last = null;
+
+  function apply() {
+    if (!last) return;
+    document.body.classList.toggle('claude', keyOf.get(last.active) === 'claude');
+    buttons.forEach((b, id) => {
+      b.classList.toggle('on', id === last.active);
+      b.classList.toggle('loaded', last.loaded.includes(id));
+    });
+  }
+
+  window.api.onState((s) => { last = s; apply(); });
+
+  window.api.getConfig().then((slots) => {
+    let prev = null;
+    for (const s of slots) {
+      if (prev && prev !== s.group) {
+        const sep = document.createElement('div');
+        sep.className = 'sep';
+        list.appendChild(sep);
+      }
+      prev = s.group;
+
+      const b = document.createElement('button');
+      if (s.icon) b.innerHTML = ICONS[s.icon] || '';
+      else b.textContent = s.label;
+      b.title = s.title;
+      b.onclick = () => window.api.switchTo(s.id);
+      list.appendChild(b);
+      buttons.set(s.id, b);
+      keyOf.set(s.id, s.key);
+    }
+    apply();
+  });
+</script>
+</body>
+</html>

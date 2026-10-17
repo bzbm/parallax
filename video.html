@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com; media-src file: https: blob:; img-src 'self' data:">
+<style>
+  :root {
+    --bg: #fafafa; --fg: #1a1a1a; --muted: #8a8a8a; --line: #e2e2e2; --accent: #e5322d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161616; --fg: #e6e6e6; --muted: #777; --line: #2a2a2a; }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); overflow: hidden;
+    font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
+
+  .bar {
+    height: 44px; display: none; align-items: center; gap: 8px; padding: 0 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  body.playing .bar { display: flex; }
+  .bar .title { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  button {
+    font: inherit; color: var(--muted); background: transparent; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 14px; padding: 4px 12px;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  button:hover { color: var(--accent); border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { color: #fff; opacity: .9; }
+
+  .stage { height: calc(100% - 44px); background: #000; display: none; }
+  body.playing .stage { display: block; }
+  .stage iframe, .stage video { width: 100%; height: 100%; border: 0; background: #000; }
+
+  /* the picker: full page when nothing plays, an overlay when "New" is pressed */
+  .panel {
+    position: absolute; inset: 0; background: var(--bg); display: flex;
+    align-items: center; justify-content: center; padding: 24px; z-index: 2;
+  }
+  .panel[hidden] { display: none; }
+  .box { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; gap: 8px; }
+  input {
+    flex: 1; min-width: 0; font: inherit; color: var(--fg); background: transparent;
+    border: 1px solid var(--line); border-radius: 14px; padding: 7px 14px; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  .hint, .err { color: var(--muted); font-size: 12px; }
+  .err { color: var(--accent); min-height: 16px; }
+  .drop .box { outline: 1.5px dashed var(--accent); outline-offset: 14px; }
+
+  .saved { display: flex; flex-direction: column; max-height: 168px; overflow-y: auto; }
+  .saved::-webkit-scrollbar { display: none; }
+  .saved button {
+    text-align: left; border: 0; border-radius: 0; border-top: 1px solid var(--line);
+    padding: 8px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .saved .label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="title" id="title"></span>
+  <button id="btn-new">New</button>
+  <button id="btn-browser" hidden>Open in browser</button>
+  <button id="btn-close">Close</button>
+</div>
+<div class="stage" id="stage"></div>
+
+<div class="panel" id="panel">
+  <div class="box">
+    <div class="row">
+      <input id="url" placeholder="Paste a video link" autofocus>
+      <button class="primary" id="btn-play">Play</button>
+    </div>
+    <div class="row">
+      <button id="btn-upload">Upload from device</button>
+      <button id="btn-cancel" hidden>Cancel</button>
+    </div>
+    <div class="err" id="err"></div>
+    <div class="hint">YouTube, Vimeo or a direct video link. You can also drop a file here. Uploaded videos are copied to Shelf / Videos.</div>
+    <div class="saved" id="saved"></div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage'), panel = $('panel'), urlIn = $('url'), err = $('err');
+  let current = null; // { type, src, title, page }
+
+  // ---- link parsing ----
+  function seconds(t) {
+    if (!t) return 0;
+    if (/^\d+$/.test(t)) return +t;
+    const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(t);
+    return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0;
+  }
+
+  function parse(raw) {
+    raw = raw.trim();
+    if (!raw) return null;
+    let u;
+    try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : 'https://' + raw); } catch { return null; }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    const host = u.hostname.replace(/^(www|m|music)\./, '');
+    const flags = 'autoplay=1&rel=0&modestbranding=1&playsinline=1';
+
+    if (host === 'youtu.be' || host === 'youtube.com') {
+      let id = null;
+      if (host === 'youtu.be') id = u.pathname.slice(1);
+      else if (u.pathname === '/watch') id = u.searchParams.get('v');
+      else {
+        const m = u.pathname.match(/^\/(?:shorts|live|embed|v)\/([\w-]{6,})/);
+        if (m) id = m[1];
+      }
+      const list = u.searchParams.get('list');
+      const start = seconds(u.searchParams.get('t') || u.searchParams.get('start'));
+      if (id && /^[\w-]{6,}$/.test(id)) {
+        const q = flags + (start ? `&start=${start}` : '') + (list ? `&list=${encodeURIComponent(list)}` : '');
+        return { type: 'frame', src: `https://www.youtube-nocookie.com/embed/${id}?${q}`, title: 'YouTube', page: u.href };
+      }
+      if (list) {
+        return { type: 'frame', src: `https://www.youtube-nocookie.com/embed/videoseries?list=${encodeURIComponent(list)}&${flags}`, title: 'YouTube playlist', page: u.href };
+      }
+      return null;
+    }
+
+    if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+      const m = u.pathname.match(/(\d{5,})/);
+      if (m) {
+        const h = u.searchParams.get('h');
+        return { type: 'frame', src: `https://player.vimeo.com/video/${m[1]}?autoplay=1${h ? '&h=' + encodeURIComponent(h) : ''}`, title: 'Vimeo', page: u.href };
+      }
+      return null;
+    }
+
+    if (/\.(mp4|webm|m4v|mov|ogv|ogg)$/i.test(u.pathname)) {
+      return { type: 'file', src: u.href, title: decodeURIComponent(u.pathname.split('/').pop()), page: u.href };
+    }
+    return null;
+  }
+
+  // ---- playback ----
+  function show(v) {
+    current = v;
+    stage.textContent = '';
+    if (v.type === 'frame') {
+      const f = document.createElement('iframe');
+      f.src = v.src;
+      f.allow = 'autoplay; fullscreen; picture-in-picture; encrypted-media';
+      f.allowFullscreen = true;
+      f.referrerPolicy = 'strict-origin-when-cross-origin';
+      stage.appendChild(f);
+    } else {
+      const el = document.createElement('video');
+      el.src = v.src;
+      el.controls = true;
+      el.autoplay = true;
+      stage.appendChild(el);
+    }
+    $('title').textContent = v.title;
+    $('btn-browser').hidden = !/^https?:/.test(v.page || '');
+    document.body.classList.add('playing');
+    closePanel();
+  }
+
+  function stop() {
+    stage.textContent = ''; // removing the element stops playback
+    current = null;
+    document.body.classList.remove('playing');
+    openPanel();
+  }
+
+  function openPanel() {
+    err.textContent = '';
+    urlIn.value = '';
+    $('btn-cancel').hidden = !current;
+    panel.hidden = false;
+    refreshSaved();
+    urlIn.focus();
+  }
+  function closePanel() { panel.hidden = true; }
+
+  async function play() {
+    const v = parse(urlIn.value);
+    if (!v) { err.textContent = 'That link is not a YouTube, Vimeo or direct video link.'; return; }
+    show(v);
+  }
+
+  async function playSaved(name) {
+    show({ type: 'file', src: await local.videoUrl(name), title: name, page: '' });
+  }
+
+  async function refreshSaved() {
+    const box = $('saved');
+    box.textContent = '';
+    let items = [];
+    try { items = (await local.list('Videos')).filter((f) => !f.dir); } catch {}
+    if (!items.length) return;
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = 'Saved videos';
+    box.appendChild(label);
+    for (const f of items.slice(0, 20)) {
+      const b = document.createElement('button');
+      b.textContent = f.name;
+      b.onclick = () => playSaved(f.name);
+      box.appendChild(b);
+    }
+  }
+
+  async function afterImport(r) {
+    if (!r) return;
+    show({ type: 'file', src: r.url, title: r.name, page: '' });
+  }
+
+  // ---- wiring ----
+  $('btn-play').onclick = play;
+  urlIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') play(); });
+  $('btn-upload').onclick = async () => afterImport(await local.videoPick());
+  $('btn-cancel').onclick = closePanel;
+  $('btn-new').onclick = openPanel;
+  $('btn-close').onclick = stop;
+  $('btn-browser').onclick = () => current && local.openExternal(current.page);
+
+  window.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drop'); });
+  window.addEventListener('dragleave', () => document.body.classList.remove('drop'));
+  window.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    document.body.classList.remove('drop');
+    if (e.dataTransfer.files.length) afterImport(await local.videoImport(e.dataTransfer.files));
+  });
+
+  local.on('new', openPanel); // Cmd+N
+  refreshSaved();
+</script>
+</body>
+</html>
